@@ -6,7 +6,9 @@ import {
   Button,
   Divider,
   Group,
+  Image,
   Paper,
+  SimpleGrid,
   Stack,
   Switch,
   Text,
@@ -24,6 +26,7 @@ import {
 } from "react-icons/fa6";
 
 import { playPronunciationAudio } from "@/lib/pronunciation-audio";
+import { fetchWordImage, type WordImage } from "@/lib/word-image";
 import {
   type ReviewResult,
   type Word,
@@ -55,7 +58,12 @@ export function AnkiStudy({
   const [audioLoadingId, setAudioLoadingId] = useState<string | null>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [autoPlayAudio, setAutoPlayAudio] = useState(false);
+  const [showImage, setShowImage] = useState(false);
+  const [wordImage, setWordImage] = useState<WordImage | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const lastAutoPlayedWordIdRef = useRef<string | null>(null);
+  const lastImageWordIdRef = useRef<string | null>(null);
 
   const safeIndex = Math.min(currentIndex, Math.max(words.length - 1, 0));
   const word = words[safeIndex];
@@ -91,6 +99,35 @@ export function AnkiStudy({
     void playAudioForWord(word, { showErrors: false });
   }, [autoPlayAudio, playAudioForWord, word]);
 
+  useEffect(() => {
+    if (!showImage || !word || showBack) {
+      return;
+    }
+
+    if (lastImageWordIdRef.current === word.id && wordImage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      setImageLoading(true);
+      setImageError(null);
+
+      try {
+        const image = await fetchWordImage(word);
+        setWordImage(image);
+        lastImageWordIdRef.current = word.id;
+      } catch {
+        setWordImage(null);
+        setImageError("No image found");
+        lastImageWordIdRef.current = word.id;
+      } finally {
+        setImageLoading(false);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [showBack, showImage, word, wordImage]);
+
   if (words.length === 0 || isFinished) {
     return (
       <Paper withBorder radius="lg" p="xl">
@@ -108,6 +145,9 @@ export function AnkiStudy({
     setCurrentIndex(nextIndex);
     setShowBack(false);
     setIsFinished(false);
+    setWordImage(null);
+    setImageError(null);
+    lastImageWordIdRef.current = null;
   }
 
   async function handleNext() {
@@ -155,6 +195,21 @@ export function AnkiStudy({
           <Group gap="xs">
             <Switch
               size="sm"
+              label="Show image"
+              checked={showImage}
+              onChange={(event) => {
+                const enabled = event.currentTarget.checked;
+                setShowImage(enabled);
+
+                if (!enabled) {
+                  setWordImage(null);
+                  setImageError(null);
+                  lastImageWordIdRef.current = null;
+                }
+              }}
+            />
+            <Switch
+              size="sm"
               label="Auto audio"
               checked={autoPlayAudio}
               onChange={(event) => {
@@ -174,6 +229,10 @@ export function AnkiStudy({
           ) : (
             <CardFront
               word={word}
+              showImage={showImage}
+              wordImage={wordImage}
+              imageLoading={imageLoading}
+              imageError={imageError}
               audioError={audioError}
               isAudioLoading={audioLoadingId === word.id}
               onPlayAudio={handlePlayAudio}
@@ -222,6 +281,10 @@ type CardSideProps = {
 };
 
 type CardFrontProps = CardSideProps & {
+  showImage: boolean;
+  wordImage: WordImage | null;
+  imageLoading: boolean;
+  imageError: string | null;
   audioError: string | null;
   isAudioLoading: boolean;
   onPlayAudio: () => void;
@@ -279,12 +342,17 @@ function StatusActions({
   );
 }
 
-function CardFront({
+function WordDetails({
   word,
   audioError,
   isAudioLoading,
   onPlayAudio,
-}: CardFrontProps) {
+}: {
+  word: Word;
+  audioError: string | null;
+  isAudioLoading: boolean;
+  onPlayAudio: () => void;
+}) {
   return (
     <Stack h="100%" justify="center" align="center" gap="sm">
       <Stack gap={4} align="center">
@@ -323,6 +391,99 @@ function CardFront({
         </Text>
       ) : null}
     </Stack>
+  );
+}
+
+function CardImage({
+  wordImage,
+  imageLoading,
+  imageError,
+}: {
+  wordImage: WordImage | null;
+  imageLoading: boolean;
+  imageError: string | null;
+}) {
+  return (
+    <Stack h="100%" justify="center" align="center" gap="xs">
+      {imageLoading ? (
+        <Text size="sm" c="dimmed">
+          Loading image...
+        </Text>
+      ) : wordImage ? (
+        <>
+          <Image
+            src={wordImage.imageUrl}
+            alt={wordImage.alt}
+            radius="md"
+            mah={220}
+            fit="contain"
+          />
+          <Text size="xs" c="dimmed" ta="center">
+            Photo by{" "}
+            <Text
+              span
+              component="a"
+              href={`${wordImage.photographerUrl}?utm_source=learn-words&utm_medium=referral`}
+              target="_blank"
+              rel="noreferrer"
+              c="blue"
+            >
+              {wordImage.photographerName}
+            </Text>{" "}
+            on{" "}
+            <Text
+              span
+              component="a"
+              href="https://unsplash.com/?utm_source=learn-words&utm_medium=referral"
+              target="_blank"
+              rel="noreferrer"
+              c="blue"
+            >
+              Unsplash
+            </Text>
+          </Text>
+        </>
+      ) : (
+        <Text size="sm" c="dimmed">
+          {imageError ?? "No image"}
+        </Text>
+      )}
+    </Stack>
+  );
+}
+
+function CardFront({
+  word,
+  showImage,
+  wordImage,
+  imageLoading,
+  imageError,
+  audioError,
+  isAudioLoading,
+  onPlayAudio,
+}: CardFrontProps) {
+  const wordDetails = (
+    <WordDetails
+      word={word}
+      audioError={audioError}
+      isAudioLoading={isAudioLoading}
+      onPlayAudio={onPlayAudio}
+    />
+  );
+
+  if (!showImage) {
+    return wordDetails;
+  }
+
+  return (
+    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg" h="100%">
+      <CardImage
+        wordImage={wordImage}
+        imageLoading={imageLoading}
+        imageError={imageError}
+      />
+      {wordDetails}
+    </SimpleGrid>
   );
 }
 

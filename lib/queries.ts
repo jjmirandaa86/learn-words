@@ -6,6 +6,7 @@ import {
   type ReviewResult,
   type WordFilterOptions,
   type WordFilters,
+  type ProgressChartData,
   type Word,
   type WordStats,
 } from "@/types/word";
@@ -266,6 +267,221 @@ export async function getWordStats(): Promise<WordStats> {
   return {
     total: Object.values(byStatus).reduce((total, count) => total + count, 0),
     byStatus,
+  };
+}
+
+type NamedCountRow = {
+  name: string | null;
+  value: string | number;
+};
+
+type CefrProgressRow = {
+  name: string | null;
+  known: string | number;
+  learning: string | number;
+  other: string | number;
+};
+
+type ThemeProgressRow = {
+  name: string | null;
+  known: string | number;
+  learning: string | number;
+  total: string | number;
+};
+
+type HardWordRow = {
+  name: string;
+  incorrect: string | number;
+  correct: string | number;
+};
+
+type ReviewQualityRow = {
+  incorrect: string | number;
+  correct: string | number;
+  known: string | number;
+};
+
+type ReviewScheduleRow = {
+  overdue: string | number;
+  dueToday: string | number;
+  upcoming: string | number;
+  unscheduled: string | number;
+};
+
+function toNamedCounts(
+  rows: NamedCountRow[],
+  fallbackNames: string[] = [],
+): ProgressChartData["byStatus"] {
+  const counts = new Map(
+    rows
+      .filter((row) => row.name)
+      .map((row) => [row.name as string, Number(row.value)]),
+  );
+
+  if (fallbackNames.length === 0) {
+    return Array.from(counts.entries()).map(([name, value]) => ({
+      name,
+      value,
+    }));
+  }
+
+  return fallbackNames.map((name) => ({
+    name,
+    value: counts.get(name) ?? 0,
+  }));
+}
+
+export async function getProgressChartData(): Promise<ProgressChartData> {
+  assertSafeIdentifier(wordsTable);
+
+  const [
+    statusRows,
+    reviewStepRows,
+    activityRows,
+    reviewQualityRows,
+    scheduleRows,
+    cefrRows,
+    themeRows,
+    studyDayRows,
+    hardestRows,
+    phraseRows,
+  ] = await Promise.all([
+    db.query(
+      `SELECT learning_status AS name, COUNT(*) AS value
+      FROM \`${wordsTable}\`
+      GROUP BY learning_status`,
+    ),
+    db.query(
+      `SELECT CAST(LEAST(correct_uses, 7) AS UNSIGNED) AS step, COUNT(*) AS value
+      FROM \`${wordsTable}\`
+      GROUP BY CAST(LEAST(correct_uses, 7) AS UNSIGNED)
+      ORDER BY step`,
+    ),
+    db.query(
+      `SELECT DATE_FORMAT(last_seen, '%Y-%m-%d') AS name, COUNT(*) AS value
+      FROM \`${wordsTable}\`
+      WHERE last_seen IS NOT NULL
+        AND last_seen >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+      GROUP BY DATE_FORMAT(last_seen, '%Y-%m-%d')
+      ORDER BY DATE_FORMAT(last_seen, '%Y-%m-%d')`,
+    ),
+    db.query(
+      `SELECT
+        COALESCE(SUM(incorrect_uses), 0) AS incorrect,
+        COALESCE(SUM(correct_uses), 0) AS correct,
+        SUM(CASE WHEN learning_status IN ('known', 'mastered') THEN 1 ELSE 0 END) AS known
+      FROM \`${wordsTable}\``,
+    ),
+    db.query(
+      `SELECT
+        SUM(CASE WHEN next_review_at IS NOT NULL AND next_review_at < CURDATE() THEN 1 ELSE 0 END) AS overdue,
+        SUM(CASE WHEN next_review_at IS NOT NULL AND DATE(next_review_at) = CURDATE() THEN 1 ELSE 0 END) AS dueToday,
+        SUM(CASE WHEN next_review_at IS NOT NULL AND next_review_at > CURDATE() THEN 1 ELSE 0 END) AS upcoming,
+        SUM(CASE WHEN next_review_at IS NULL THEN 1 ELSE 0 END) AS unscheduled
+      FROM \`${wordsTable}\``,
+    ),
+    db.query(
+      `SELECT
+        cefr_level AS name,
+        SUM(CASE WHEN learning_status IN ('known', 'mastered') THEN 1 ELSE 0 END) AS known,
+        SUM(CASE WHEN learning_status IN ('learning', 'review') THEN 1 ELSE 0 END) AS learning,
+        SUM(CASE WHEN learning_status NOT IN ('known', 'mastered', 'learning', 'review') THEN 1 ELSE 0 END) AS other
+      FROM \`${wordsTable}\`
+      WHERE cefr_level IS NOT NULL AND cefr_level != ''
+      GROUP BY cefr_level
+      ORDER BY cefr_level`,
+    ),
+    db.query(
+      `SELECT
+        theme AS name,
+        SUM(CASE WHEN learning_status IN ('known', 'mastered') THEN 1 ELSE 0 END) AS known,
+        SUM(CASE WHEN learning_status IN ('learning', 'review') THEN 1 ELSE 0 END) AS learning,
+        COUNT(*) AS total
+      FROM \`${wordsTable}\`
+      WHERE theme IS NOT NULL AND theme != ''
+      GROUP BY theme
+      ORDER BY COUNT(*) DESC
+      LIMIT 10`,
+    ),
+    db.query(
+      `SELECT DATE_FORMAT(last_seen, '%Y-%m-%d') AS name
+      FROM \`${wordsTable}\`
+      WHERE last_seen IS NOT NULL
+      GROUP BY DATE_FORMAT(last_seen, '%Y-%m-%d')
+      ORDER BY DATE_FORMAT(last_seen, '%Y-%m-%d') DESC
+      LIMIT 60`,
+    ),
+    db.query(
+      `SELECT
+        word_or_expression AS name,
+        incorrect_uses AS incorrect,
+        correct_uses AS correct
+      FROM \`${wordsTable}\`
+      WHERE incorrect_uses > 0
+      ORDER BY incorrect_uses DESC, correct_uses ASC
+      LIMIT 10`,
+    ),
+    db.query(
+      `SELECT learning_status AS name, COUNT(*) AS value
+      FROM \`${wordsTable}\`
+      WHERE is_phrase = 1
+      GROUP BY learning_status`,
+    ),
+  ]);
+
+  const [reviewQuality] = reviewQualityRows[0] as ReviewQualityRow[];
+  const [schedule] = scheduleRows[0] as ReviewScheduleRow[];
+
+  return {
+    byStatus: toNamedCounts(
+      statusRows[0] as NamedCountRow[],
+      [...learningStatuses],
+    ),
+    reviewSteps: toNamedCounts(
+      (reviewStepRows[0] as Array<{ step: string | number; value: string | number }>).map(
+        (row) => ({
+          name: `Review ${row.step}`,
+          value: row.value,
+        }),
+      ),
+      Array.from({ length: 8 }, (_, index) => `Review ${index}`),
+    ),
+    activityByDay: toNamedCounts(activityRows[0] as NamedCountRow[]),
+    reviewQuality: [
+      { name: "Again", value: Number(reviewQuality?.incorrect ?? 0) },
+      { name: "Good", value: Number(reviewQuality?.correct ?? 0) },
+      { name: "Known", value: Number(reviewQuality?.known ?? 0) },
+    ],
+    reviewSchedule: [
+      { name: "Overdue", value: Number(schedule?.overdue ?? 0) },
+      { name: "Due today", value: Number(schedule?.dueToday ?? 0) },
+      { name: "Upcoming", value: Number(schedule?.upcoming ?? 0) },
+      { name: "Unscheduled", value: Number(schedule?.unscheduled ?? 0) },
+    ],
+    byCefr: (cefrRows[0] as CefrProgressRow[]).map((row) => ({
+      name: row.name ?? "Unknown",
+      known: Number(row.known),
+      learning: Number(row.learning),
+      other: Number(row.other),
+    })),
+    byTheme: (themeRows[0] as ThemeProgressRow[]).map((row) => ({
+      name: row.name ?? "Unknown",
+      known: Number(row.known),
+      learning: Number(row.learning),
+      total: Number(row.total),
+    })),
+    studyDays: (studyDayRows[0] as NamedCountRow[])
+      .map((row) => row.name)
+      .filter((value): value is string => Boolean(value)),
+    hardestWords: (hardestRows[0] as HardWordRow[]).map((row) => ({
+      name: row.name,
+      incorrect: Number(row.incorrect),
+      correct: Number(row.correct),
+    })),
+    phrasesByStatus: toNamedCounts(
+      phraseRows[0] as NamedCountRow[],
+      [...learningStatuses],
+    ),
   };
 }
 

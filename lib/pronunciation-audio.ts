@@ -2,7 +2,7 @@
 
 import type { Word } from "@/types/word";
 
-const audioCacheStorageKey = "learn-words:pronunciation-audio-urls";
+const audioCacheStorageKey = "learn-words:pronunciation-audio-urls:v3";
 
 function getAudioCacheKey(word: string) {
   return word.trim().toLowerCase();

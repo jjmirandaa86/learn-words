@@ -1,22 +1,35 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import {
+  AppShell,
   Badge,
+  Burger,
   Button,
   Container,
   Group,
+  NavLink,
   Paper,
-  SegmentedControl,
   Select,
   Stack,
   Text,
   Title,
 } from "@mantine/core";
-import { FaFilter, FaPlus, FaTrashCan, FaXmark } from "react-icons/fa6";
+import {
+  FaChartPie,
+  FaComments,
+  FaFilter,
+  FaLayerGroup,
+  FaList,
+  FaPlus,
+  FaTrashCan,
+  FaXmark,
+} from "react-icons/fa6";
+import { useDisclosure } from "@mantine/hooks";
 
 import { AnkiStudy } from "@/components/anki-study";
 import { ConversationPractice } from "@/components/conversation-practice";
+import { ProgressCharts } from "@/components/progress-charts";
 import { WordsTable } from "@/components/words-table";
 import {
   learningStatuses,
@@ -35,7 +48,7 @@ type HomeContentProps = {
   filterOptions: WordFilterOptions;
 };
 
-type ViewMode = "list" | "anki" | "conversation";
+type ViewMode = "list" | "anki" | "conversation" | "charts";
 type StatusFilter = "all" | LearningStatus;
 
 const statusFilterOptions = [
@@ -45,6 +58,17 @@ const statusFilterOptions = [
     label: status.charAt(0).toUpperCase() + status.slice(1),
   })),
 ];
+
+const viewOptions = [
+  { value: "list", label: "List", icon: FaList },
+  { value: "anki", label: "Anki", icon: FaLayerGroup },
+  { value: "conversation", label: "Conversation", icon: FaComments },
+  { value: "charts", label: "Charts", icon: FaChartPie },
+] satisfies Array<{
+  value: ViewMode;
+  label: string;
+  icon: ComponentType<{ size?: number }>;
+}>;
 
 function toSelectOptions(values: string[]) {
   return values.map((value) => ({
@@ -93,6 +117,8 @@ export function HomeContent({
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [activeTotal, setActiveTotal] = useState(wordStats.total);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [navbarOpened, { close: closeNavbar, toggle: toggleNavbar }] =
+    useDisclosure(false);
 
   const databaseStatusTotal =
     statusFilter === "all" ? stats.total : stats.byStatus[statusFilter];
@@ -104,6 +130,8 @@ export function HomeContent({
     }),
     [advancedFilters, statusFilter],
   );
+  const currentViewOption =
+    viewOptions.find((option) => option.value === viewMode) ?? viewOptions[0];
 
   function buildWordsUrl(
     offset: number,
@@ -126,6 +154,11 @@ export function HomeContent({
     }
 
     return `/api/words?${params.toString()}`;
+  }
+
+  function handleViewChange(nextViewMode: ViewMode) {
+    setViewMode(nextViewMode);
+    closeNavbar();
   }
 
   async function fetchWordsPage(
@@ -380,192 +413,248 @@ export function HomeContent({
   }
 
   return (
-    <Container size="lg" px="md" py="xl">
-      <Stack gap="md">
-        <Paper withBorder radius="lg" p="md" shadow="xs">
-          <Stack gap="sm">
-            <Badge variant="light" color="blue">
-              Learn Words
+    <AppShell
+      padding="md"
+      header={{ height: { base: 60, md: 70, lg: 80 } }}
+      navbar={{
+        width: { base: 200, md: 240, lg: 280 },
+        breakpoint: "sm",
+        collapsed: { mobile: !navbarOpened },
+      }}
+    >
+      <AppShell.Header>
+        <Group h="100%" px="md" justify="space-between">
+          <Group gap="sm">
+            <Burger
+              opened={navbarOpened}
+              onClick={toggleNavbar}
+              hiddenFrom="sm"
+              size="sm"
+            />
+            <Stack gap={0}>
+              <Title order={1} size="h3">
+                English jjma
+              </Title>
+              <Text size="xs" c="dimmed" visibleFrom="sm">
+                Learn Words
+              </Text>
+            </Stack>
+          </Group>
+
+          <Group gap="xs">
+            <Badge variant="light" color="blue" hiddenFrom="sm">
+              {currentViewOption.label}
             </Badge>
-            <Title order={1} size="h2">
-              English jjma
-            </Title>
+            <Badge variant="light" color="gray">
+              {statusFilter === "all" ? "All statuses" : statusFilter}
+            </Badge>
+          </Group>
+        </Group>
+      </AppShell.Header>
+
+      <AppShell.Navbar p="md">
+        <Stack gap="md" h="100%">
+          <Stack gap="xs">
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed">
+              Navigation
+            </Text>
+            {viewOptions.map((option) => {
+              const Icon = option.icon;
+
+              return (
+                <NavLink
+                  key={option.value}
+                  label={option.label}
+                  leftSection={<Icon size={16} />}
+                  active={viewMode === option.value}
+                  variant="filled"
+                  onClick={() => handleViewChange(option.value)}
+                />
+              );
+            })}
           </Stack>
-        </Paper>
 
-        <Paper withBorder radius="lg" p="sm" shadow="xs">
-          <Stack gap="sm">
-            <Group justify="space-between" align="center" gap="sm">
-              <Select
-                aria-label="Learning status"
-                data={statusFilterOptions}
-                value={statusFilter}
-                onChange={handleStatusFilterChange}
-                disabled={isLoadingMore}
-                size="sm"
-                w={{ base: "100%", sm: 220 }}
+          <Text size="xs" c="dimmed" mt="auto">
+            Filters stay in the main panel and apply to every view.
+          </Text>
+        </Stack>
+      </AppShell.Navbar>
+
+      <AppShell.Main>
+        <Container size="lg" px={0}>
+          <Stack gap="md">
+            {viewMode !== "charts" ? (
+              <Paper withBorder radius="lg" p="sm" shadow="xs">
+                <Stack gap="sm">
+                  <Group justify="space-between" align="center" gap="sm">
+                    <Select
+                      aria-label="Learning status"
+                      data={statusFilterOptions}
+                      value={statusFilter}
+                      onChange={handleStatusFilterChange}
+                      disabled={isLoadingMore}
+                      size="sm"
+                      w={{ base: "100%", sm: 220 }}
+                    />
+
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      leftSection={
+                        showAdvancedFilters ? <FaXmark /> : <FaFilter />
+                      }
+                      onClick={() =>
+                        setShowAdvancedFilters((current) => !current)
+                      }
+                    >
+                      {showAdvancedFilters ? "Hide filters" : "More filters"}
+                    </Button>
+
+                    <Group gap="xs" style={{ flex: 1 }}>
+                      <Badge variant="light" color="blue">
+                        {statusFilter === "all" ? "All" : statusFilter}
+                      </Badge>
+                      <Text size="sm" c="dimmed">
+                        <strong>{items.length}</strong>/
+                        <strong>{activeTotal}</strong> shown
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        DB <strong>{databaseStatusTotal}</strong>/
+                        <strong>{stats.total}</strong>
+                      </Text>
+                      {hasMore ? (
+                        <Badge variant="outline" color="gray">
+                          More
+                        </Badge>
+                      ) : null}
+                    </Group>
+                  </Group>
+
+                  {showAdvancedFilters ? (
+                    <Stack gap="md">
+                      <Group align="end">
+                        <Select
+                          clearable
+                          label="CEFR level"
+                          data={toSelectOptions(filterOptions.cefrLevels)}
+                          value={advancedFilters.cefrLevel ?? null}
+                          onChange={(value) =>
+                            handleAdvancedFilterChange("cefrLevel", value)
+                          }
+                          disabled={isLoadingMore}
+                          w={{ base: "100%", sm: 220 }}
+                        />
+                        <Select
+                          clearable
+                          label="Priority"
+                          data={toSelectOptions(filterOptions.priorities)}
+                          value={advancedFilters.priority ?? null}
+                          onChange={(value) =>
+                            handleAdvancedFilterChange("priority", value)
+                          }
+                          disabled={isLoadingMore}
+                          w={{ base: "100%", sm: 220 }}
+                        />
+                        <Select
+                          clearable
+                          label="Word type"
+                          data={toSelectOptions(filterOptions.wordTypes)}
+                          value={advancedFilters.wordType ?? null}
+                          onChange={(value) =>
+                            handleAdvancedFilterChange("wordType", value)
+                          }
+                          disabled={isLoadingMore}
+                          searchable
+                          w={{ base: "100%", sm: 220 }}
+                        />
+                        <Select
+                          clearable
+                          label="IELTS relevance"
+                          data={toSelectOptions(filterOptions.ieltsRelevances)}
+                          value={advancedFilters.ieltsRelevance ?? null}
+                          onChange={(value) =>
+                            handleAdvancedFilterChange("ieltsRelevance", value)
+                          }
+                          disabled={isLoadingMore}
+                          w={{ base: "100%", sm: 220 }}
+                        />
+                        <Select
+                          clearable
+                          label="Theme"
+                          data={toSelectOptions(filterOptions.themes)}
+                          value={advancedFilters.theme ?? null}
+                          onChange={(value) =>
+                            handleAdvancedFilterChange("theme", value)
+                          }
+                          disabled={isLoadingMore}
+                          searchable
+                          w={{ base: "100%", sm: 220 }}
+                        />
+                        <Select
+                          clearable
+                          label="Study group"
+                          data={toSelectOptions(filterOptions.studyGroups)}
+                          value={advancedFilters.studyGroup ?? null}
+                          onChange={(value) =>
+                            handleAdvancedFilterChange("studyGroup", value)
+                          }
+                          disabled={isLoadingMore}
+                          searchable
+                          w={{ base: "100%", sm: 220 }}
+                        />
+                      </Group>
+
+                      <Button
+                        variant="default"
+                        leftSection={<FaTrashCan />}
+                        disabled={
+                          isLoadingMore || !hasAdvancedFilters(advancedFilters)
+                        }
+                        onClick={handleClearAdvancedFilters}
+                        w="fit-content"
+                      >
+                        Clear extra filters
+                      </Button>
+                    </Stack>
+                  ) : null}
+                </Stack>
+              </Paper>
+            ) : null}
+
+            {viewMode === "anki" ? (
+              <AnkiStudy
+                words={items}
+                savingId={savingId}
+                hasMore={hasMore}
+                isLoadingMore={isLoadingMore}
+                onReviewResult={handleReviewResult}
+                onLoadMore={handleLoadMore}
               />
+            ) : viewMode === "conversation" ? (
+              <ConversationPractice filters={conversationFilters} />
+            ) : viewMode === "charts" ? (
+              <ProgressCharts />
+            ) : (
+              <WordsTable
+                words={items}
+                savingId={savingId}
+                onStatusChange={handleStatusChange}
+              />
+            )}
 
+            {viewMode === "list" && hasMore ? (
               <Button
-                variant="subtle"
-                size="sm"
-                leftSection={showAdvancedFilters ? <FaXmark /> : <FaFilter />}
-                onClick={() => setShowAdvancedFilters((current) => !current)}
+                variant="light"
+                leftSection={<FaPlus />}
+                loading={isLoadingMore}
+                onClick={handleLoadMore}
               >
-                {showAdvancedFilters ? "Hide filters" : "More filters"}
+                Load more
               </Button>
-
-              <Group gap="xs" style={{ flex: 1 }}>
-                <Badge variant="light" color="blue">
-                  {statusFilter === "all" ? "All" : statusFilter}
-                </Badge>
-                <Text size="sm" c="dimmed">
-                  <strong>{items.length}</strong>/<strong>{activeTotal}</strong>{" "}
-                  shown
-                </Text>
-                <Text size="sm" c="dimmed">
-                  DB <strong>{databaseStatusTotal}</strong>/
-                  <strong>{stats.total}</strong>
-                </Text>
-                {hasMore ? (
-                  <Badge variant="outline" color="gray">
-                    More
-                  </Badge>
-                ) : null}
-              </Group>
-
-              <SegmentedControl
-                size="sm"
-                value={viewMode}
-                onChange={(value) => setViewMode(value as ViewMode)}
-                data={[
-                  { value: "list", label: "List" },
-                  { value: "anki", label: "Anki" },
-                  { value: "conversation", label: "Conversation" },
-                ]}
-              />
-            </Group>
-
-            {showAdvancedFilters ? (
-              <Stack gap="md">
-                <Group align="end">
-                  <Select
-                    clearable
-                    label="CEFR level"
-                    data={toSelectOptions(filterOptions.cefrLevels)}
-                    value={advancedFilters.cefrLevel ?? null}
-                    onChange={(value) =>
-                      handleAdvancedFilterChange("cefrLevel", value)
-                    }
-                    disabled={isLoadingMore}
-                    w={{ base: "100%", sm: 220 }}
-                  />
-                  <Select
-                    clearable
-                    label="Priority"
-                    data={toSelectOptions(filterOptions.priorities)}
-                    value={advancedFilters.priority ?? null}
-                    onChange={(value) =>
-                      handleAdvancedFilterChange("priority", value)
-                    }
-                    disabled={isLoadingMore}
-                    w={{ base: "100%", sm: 220 }}
-                  />
-                  <Select
-                    clearable
-                    label="Word type"
-                    data={toSelectOptions(filterOptions.wordTypes)}
-                    value={advancedFilters.wordType ?? null}
-                    onChange={(value) =>
-                      handleAdvancedFilterChange("wordType", value)
-                    }
-                    disabled={isLoadingMore}
-                    searchable
-                    w={{ base: "100%", sm: 220 }}
-                  />
-                  <Select
-                    clearable
-                    label="IELTS relevance"
-                    data={toSelectOptions(filterOptions.ieltsRelevances)}
-                    value={advancedFilters.ieltsRelevance ?? null}
-                    onChange={(value) =>
-                      handleAdvancedFilterChange("ieltsRelevance", value)
-                    }
-                    disabled={isLoadingMore}
-                    w={{ base: "100%", sm: 220 }}
-                  />
-                  <Select
-                    clearable
-                    label="Theme"
-                    data={toSelectOptions(filterOptions.themes)}
-                    value={advancedFilters.theme ?? null}
-                    onChange={(value) =>
-                      handleAdvancedFilterChange("theme", value)
-                    }
-                    disabled={isLoadingMore}
-                    searchable
-                    w={{ base: "100%", sm: 220 }}
-                  />
-                  <Select
-                    clearable
-                    label="Study group"
-                    data={toSelectOptions(filterOptions.studyGroups)}
-                    value={advancedFilters.studyGroup ?? null}
-                    onChange={(value) =>
-                      handleAdvancedFilterChange("studyGroup", value)
-                    }
-                    disabled={isLoadingMore}
-                    searchable
-                    w={{ base: "100%", sm: 220 }}
-                  />
-                </Group>
-
-                <Button
-                  variant="default"
-                  leftSection={<FaTrashCan />}
-                  disabled={
-                    isLoadingMore || !hasAdvancedFilters(advancedFilters)
-                  }
-                  onClick={handleClearAdvancedFilters}
-                  w="fit-content"
-                >
-                  Clear extra filters
-                </Button>
-              </Stack>
             ) : null}
           </Stack>
-        </Paper>
-
-        {viewMode === "anki" ? (
-          <AnkiStudy
-            words={items}
-            savingId={savingId}
-            hasMore={hasMore}
-            isLoadingMore={isLoadingMore}
-            onReviewResult={handleReviewResult}
-            onLoadMore={handleLoadMore}
-          />
-        ) : viewMode === "conversation" ? (
-          <ConversationPractice filters={conversationFilters} />
-        ) : (
-          <WordsTable
-            words={items}
-            savingId={savingId}
-            onStatusChange={handleStatusChange}
-          />
-        )}
-
-        {viewMode === "list" && hasMore ? (
-          <Button
-            variant="light"
-            leftSection={<FaPlus />}
-            loading={isLoadingMore}
-            onClick={handleLoadMore}
-          >
-            Load more
-          </Button>
-        ) : null}
-      </Stack>
-    </Container>
+        </Container>
+      </AppShell.Main>
+    </AppShell>
   );
 }

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 
 type MerriamEntry = {
+  meta?: {
+    id?: string;
+    stems?: string[];
+  };
   hwi?: {
+    hw?: string;
     prs?: Array<{
       sound?: {
         audio?: string;
@@ -9,14 +14,6 @@ type MerriamEntry = {
     }>;
   };
 };
-
-type SoundValue = {
-  audio?: unknown;
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function getAudioSubdirectory(audio: string) {
   if (audio.startsWith("bix")) {
@@ -40,8 +37,12 @@ function buildMerriamAudioUrl(audio: string) {
   return `https://media.merriam-webster.com/audio/prons/en/us/mp3/${subdirectory}/${audio}.mp3`;
 }
 
+function normalizeWord(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function buildFallbackAudioCandidates(word: string) {
-  const normalizedWord = word.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalizedWord = normalizeWord(word);
 
   if (!normalizedWord) {
     return [];
@@ -59,6 +60,13 @@ function buildFallbackAudioCandidates(word: string) {
 
   if (normalizedWord.endsWith("ally") && normalizedWord.length > 5) {
     stems.add(normalizedWord.slice(0, -4));
+  }
+
+  // Apply silent-e stripping to every stem, e.g. extremely -> extreme -> extrem.
+  for (const stem of Array.from(stems)) {
+    if (stem.endsWith("e") && stem.length > 3) {
+      stems.add(stem.slice(0, -1));
+    }
   }
 
   const suffixes = ["", "01", "001", "0001"];
@@ -84,52 +92,66 @@ async function findExistingFallbackAudio(word: string) {
   return null;
 }
 
-function collectNestedAudio(value: unknown, audios: Set<string>) {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectNestedAudio(item, audios);
-    }
+function entryMatchesWord(entry: MerriamEntry, word: string) {
+  const normalizedWord = normalizeWord(word);
 
-    return;
+  if (!normalizedWord) {
+    return false;
   }
 
-  if (!isRecord(value)) {
-    return;
-  }
+  const candidates = [
+    entry.meta?.id,
+    entry.hwi?.hw,
+    ...(entry.meta?.stems ?? []),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeWord);
 
-  const sound = value.sound;
-
-  if (isRecord(sound) && typeof sound.audio === "string") {
-    audios.add(sound.audio);
-  }
-
-  for (const nestedValue of Object.values(value)) {
-    collectNestedAudio(nestedValue, audios);
-  }
+  return candidates.some(
+    (candidate) =>
+      candidate === normalizedWord ||
+      candidate.startsWith(normalizedWord) ||
+      normalizedWord.startsWith(candidate),
+  );
 }
 
-function findAudio(entries: unknown) {
+function audioMatchesWord(audio: string, word: string) {
+  const normalizedWord = normalizeWord(word);
+  const normalizedAudio = normalizeWord(audio.replace(/\d+$/, ""));
+
+  if (!normalizedWord || !normalizedAudio) {
+    return false;
+  }
+
+  return (
+    normalizedAudio === normalizedWord ||
+    normalizedWord.startsWith(normalizedAudio) ||
+    normalizedAudio.startsWith(normalizedWord)
+  );
+}
+
+function findAudio(entries: unknown, word: string) {
   if (!Array.isArray(entries)) {
     return null;
   }
 
-  const audios = new Set<string>();
+  const matchingEntries = (entries as MerriamEntry[]).filter((entry) =>
+    entryMatchesWord(entry, word),
+  );
 
-  for (const entry of entries as MerriamEntry[]) {
+  for (const entry of matchingEntries) {
     const pronunciations = entry.hwi?.prs ?? [];
 
     for (const pronunciation of pronunciations) {
       const audio = pronunciation.sound?.audio;
 
-      if (audio) {
-        audios.add(audio);
+      if (audio && audioMatchesWord(audio, word)) {
+        return audio;
       }
     }
   }
 
-  collectNestedAudio(entries, audios);
-
-  return audios.values().next().value ?? null;
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -160,7 +182,7 @@ export async function GET(request: Request) {
   }
 
   const entries = await response.json();
-  const audio = findAudio(entries) ?? (await findExistingFallbackAudio(word));
+  const audio = findAudio(entries, word) ?? (await findExistingFallbackAudio(word));
 
   if (!audio) {
     return NextResponse.json(

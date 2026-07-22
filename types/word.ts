@@ -62,3 +62,35 @@ export type WordFilterOptions = {
   themes: string[];
   studyGroups: string[];
 };
+
+export type NamedCount = {
+  name: string;
+  value: number;
+};
+
+export type ProgressChartData = {
+  byStatus: NamedCount[];
+  reviewSteps: NamedCount[];
+  activityByDay: NamedCount[];
+  reviewQuality: NamedCount[];
+  reviewSchedule: NamedCount[];
+  byCefr: Array<{
+    name: string;
+    known: number;
+    learning: number;
+    other: number;
+  }>;
+  byTheme: Array<{
+    name: string;
+    known: number;
+    learning: number;
+    total: number;
+  }>;
+  studyDays: string[];
+  hardestWords: Array<{
+    name: string;
+    incorrect: number;
+    correct: number;
+  }>;
+  phrasesByStatus: NamedCount[];
+};
