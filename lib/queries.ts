@@ -204,20 +204,42 @@ export async function getFilteredWordCount(
   return Number(row?.count ?? 0);
 }
 
-async function getDistinctValues(column: string) {
+function omitFilter(
+  filters: WordFilters,
+  key: keyof WordFilters,
+): WordFilters {
+  const nextFilters = { ...filters };
+  delete nextFilters[key];
+  return nextFilters;
+}
+
+async function getDistinctValues(column: string, filters: WordFilters = {}) {
   assertSafeIdentifier(wordsTable);
 
+  if (!/^[a-zA-Z0-9_]+$/.test(column)) {
+    throw new Error("Invalid MySQL column name");
+  }
+
+  const where = buildWhereClause(filters);
+  const valueClause = `${column} IS NOT NULL AND CAST(${column} AS CHAR) != ''`;
+  const clause = where.clause
+    ? `${where.clause} AND ${valueClause}`
+    : `WHERE ${valueClause}`;
+
   const [rows] = await db.query(
-    `SELECT DISTINCT ${column} AS value
+    `SELECT DISTINCT CAST(${column} AS CHAR) AS value
     FROM \`${wordsTable}\`
-    WHERE ${column} IS NOT NULL AND ${column} != ''
-    ORDER BY ${column}`,
+    ${clause}
+    ORDER BY value`,
+    where.values,
   );
 
   return (rows as DistinctValueRow[]).map((row) => row.value ?? "");
 }
 
-export async function getWordFilterOptions(): Promise<WordFilterOptions> {
+export async function getWordFilterOptions(
+  filters: WordFilters = {},
+): Promise<WordFilterOptions> {
   const [
     cefrLevels,
     priorities,
@@ -225,13 +247,15 @@ export async function getWordFilterOptions(): Promise<WordFilterOptions> {
     ieltsRelevances,
     themes,
     studyGroups,
+    isPhrases,
   ] = await Promise.all([
-    getDistinctValues("cefr_level"),
-    getDistinctValues("priority"),
-    getDistinctValues("word_type"),
-    getDistinctValues("ielts_relevance"),
-    getDistinctValues("theme"),
-    getDistinctValues("study_group"),
+    getDistinctValues("cefr_level", omitFilter(filters, "cefrLevel")),
+    getDistinctValues("priority", omitFilter(filters, "priority")),
+    getDistinctValues("word_type", omitFilter(filters, "wordType")),
+    getDistinctValues("ielts_relevance", omitFilter(filters, "ieltsRelevance")),
+    getDistinctValues("theme", omitFilter(filters, "theme")),
+    getDistinctValues("study_group", omitFilter(filters, "studyGroup")),
+    getDistinctValues("is_phrase", omitFilter(filters, "isPhrase")),
   ]);
 
   return {
@@ -241,6 +265,39 @@ export async function getWordFilterOptions(): Promise<WordFilterOptions> {
     ieltsRelevances,
     themes,
     studyGroups,
+    isPhrases,
+  };
+}
+
+export function parseWordFilters(
+  searchParams: URLSearchParams,
+): { filters: WordFilters; error?: string } {
+  const status = searchParams.get("status");
+  const learningStatus =
+    status && isLearningStatus(status) ? status : undefined;
+
+  if (status && !learningStatus) {
+    return {
+      filters: {},
+      error: "Invalid learning status",
+    };
+  }
+
+  const isPhraseParam = searchParams.get("isPhrase");
+  const isPhrase =
+    isPhraseParam === "0" || isPhraseParam === "1" ? isPhraseParam : undefined;
+
+  return {
+    filters: {
+      learningStatus,
+      cefrLevel: searchParams.get("cefrLevel") || undefined,
+      priority: searchParams.get("priority") || undefined,
+      wordType: searchParams.get("wordType") || undefined,
+      ieltsRelevance: searchParams.get("ieltsRelevance") || undefined,
+      theme: searchParams.get("theme") || undefined,
+      studyGroup: searchParams.get("studyGroup") || undefined,
+      isPhrase,
+    },
   };
 }
 

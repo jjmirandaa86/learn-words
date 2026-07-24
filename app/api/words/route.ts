@@ -4,9 +4,8 @@ import {
   getDefaultWordsLimit,
   getFilteredWordCount,
   getWords,
-  isLearningStatus,
+  parseWordFilters,
 } from "@/lib/queries";
-import type { WordFilters } from "@/types/word";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -16,29 +15,11 @@ export async function GET(request: Request) {
   const offset = searchParams.has("offset")
     ? Number(searchParams.get("offset"))
     : 0;
-  const status = searchParams.get("status");
   const random = searchParams.get("random") === "true";
+  const { filters, error } = parseWordFilters(searchParams);
 
-  const learningStatus = status && isLearningStatus(status) ? status : undefined;
-  const isPhraseParam = searchParams.get("isPhrase");
-  const isPhrase =
-    isPhraseParam === "0" || isPhraseParam === "1" ? isPhraseParam : undefined;
-  const filters: WordFilters = {
-    learningStatus,
-    cefrLevel: searchParams.get("cefrLevel") || undefined,
-    priority: searchParams.get("priority") || undefined,
-    wordType: searchParams.get("wordType") || undefined,
-    ieltsRelevance: searchParams.get("ieltsRelevance") || undefined,
-    theme: searchParams.get("theme") || undefined,
-    studyGroup: searchParams.get("studyGroup") || undefined,
-    isPhrase,
-  };
-
-  if (status && !learningStatus) {
-    return NextResponse.json(
-      { error: "Invalid learning status" },
-      { status: 400 },
-    );
+  if (error) {
+    return NextResponse.json({ error }, { status: 400 });
   }
 
   try {
@@ -51,7 +32,7 @@ export async function GET(request: Request) {
       meta: {
         limit,
         offset,
-        status: learningStatus,
+        status: filters.learningStatus,
         random,
         total,
         hasMore: offset + words.length < total,
@@ -62,7 +43,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(
       { error: "Failed to load words" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -62,6 +62,7 @@ export type WordFilterOptions = {
   ieltsRelevances: string[];
   themes: string[];
   studyGroups: string[];
+  isPhrases: string[];
 };
 
 export type NamedCount = {

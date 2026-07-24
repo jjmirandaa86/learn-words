@@ -77,8 +77,67 @@ function toSelectOptions(values: string[]) {
   }));
 }
 
+function toIsPhraseOptions(values: string[]) {
+  return values
+    .filter((value) => value === "0" || value === "1")
+    .map((value) => ({
+      value,
+      label: value === "1" ? "Yes" : "No",
+    }));
+}
+
 function hasAdvancedFilters(filters: WordFilters) {
   return Object.values(filters).some(Boolean);
+}
+
+function areFiltersEqual(left: WordFilters, right: WordFilters) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function pruneAdvancedFilters(
+  filters: WordFilters,
+  options: WordFilterOptions,
+): WordFilters {
+  const nextFilters = { ...filters };
+
+  if (nextFilters.cefrLevel && !options.cefrLevels.includes(nextFilters.cefrLevel)) {
+    delete nextFilters.cefrLevel;
+  }
+
+  if (nextFilters.priority && !options.priorities.includes(nextFilters.priority)) {
+    delete nextFilters.priority;
+  }
+
+  if (nextFilters.wordType && !options.wordTypes.includes(nextFilters.wordType)) {
+    delete nextFilters.wordType;
+  }
+
+  if (
+    nextFilters.ieltsRelevance &&
+    !options.ieltsRelevances.includes(nextFilters.ieltsRelevance)
+  ) {
+    delete nextFilters.ieltsRelevance;
+  }
+
+  if (nextFilters.theme && !options.themes.includes(nextFilters.theme)) {
+    delete nextFilters.theme;
+  }
+
+  if (
+    nextFilters.studyGroup &&
+    !options.studyGroups.includes(nextFilters.studyGroup)
+  ) {
+    delete nextFilters.studyGroup;
+  }
+
+  if (
+    nextFilters.isPhrase &&
+    !options.isPhrases.includes(nextFilters.isPhrase)
+  ) {
+    delete nextFilters.isPhrase;
+  }
+
+  return nextFilters;
 }
 
 type WordsResponse = {
@@ -114,6 +173,7 @@ export function HomeContent({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [advancedFilters, setAdvancedFilters] = useState<WordFilters>({});
+  const [activeFilterOptions, setActiveFilterOptions] = useState(filterOptions);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [activeTotal, setActiveTotal] = useState(wordStats.total);
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -156,6 +216,28 @@ export function HomeContent({
     return `/api/words?${params.toString()}`;
   }
 
+  function buildFilterOptionsUrl(
+    filter = statusFilter,
+    nextAdvancedFilters = advancedFilters,
+  ) {
+    const params = new URLSearchParams();
+
+    if (filter !== "all") {
+      params.set("status", filter);
+    }
+
+    for (const [key, value] of Object.entries(nextAdvancedFilters)) {
+      if (value) {
+        params.set(key, value);
+      }
+    }
+
+    const query = params.toString();
+    return query
+      ? `/api/words/filter-options?${query}`
+      : "/api/words/filter-options";
+  }
+
   function handleViewChange(nextViewMode: ViewMode) {
     setViewMode(nextViewMode);
     closeNavbar();
@@ -181,16 +263,64 @@ export function HomeContent({
     };
   }
 
+  async function fetchFilterOptions(
+    filter: StatusFilter,
+    nextAdvancedFilters: WordFilters,
+  ) {
+    const response = await fetch(
+      buildFilterOptionsUrl(filter, nextAdvancedFilters),
+    );
+
+    if (!response.ok) {
+      return activeFilterOptions;
+    }
+
+    const result = (await response.json()) as { data?: WordFilterOptions };
+    return result.data ?? activeFilterOptions;
+  }
+
+  async function applyFilters(
+    filter: StatusFilter,
+    nextAdvancedFilters: WordFilters,
+  ) {
+    setIsLoadingMore(true);
+
+    const [wordsResult, nextFilterOptions] = await Promise.all([
+      fetchWordsPage(filter, 0, nextAdvancedFilters),
+      fetchFilterOptions(filter, nextAdvancedFilters),
+    ]);
+
+    const prunedFilters = pruneAdvancedFilters(
+      nextAdvancedFilters,
+      nextFilterOptions,
+    );
+
+    if (!areFiltersEqual(prunedFilters, nextAdvancedFilters)) {
+      setAdvancedFilters(prunedFilters);
+
+      const [prunedWords, prunedOptions] = await Promise.all([
+        fetchWordsPage(filter, 0, prunedFilters),
+        fetchFilterOptions(filter, prunedFilters),
+      ]);
+
+      setActiveFilterOptions(prunedOptions);
+      setItems(prunedWords.data);
+      setActiveTotal(prunedWords.total);
+      setIsLoadingMore(false);
+      return;
+    }
+
+    setActiveFilterOptions(nextFilterOptions);
+    setItems(wordsResult.data);
+    setActiveTotal(wordsResult.total);
+    setIsLoadingMore(false);
+  }
+
   async function handleStatusFilterChange(value: string | null) {
     const nextFilter = (value ?? "all") as StatusFilter;
 
     setStatusFilter(nextFilter);
-    setIsLoadingMore(true);
-
-    const result = await fetchWordsPage(nextFilter, 0);
-    setItems(result.data);
-    setActiveTotal(result.total);
-    setIsLoadingMore(false);
+    await applyFilters(nextFilter, advancedFilters);
   }
 
   async function handleAdvancedFilterChange(
@@ -203,22 +333,12 @@ export function HomeContent({
     };
 
     setAdvancedFilters(nextAdvancedFilters);
-    setIsLoadingMore(true);
-
-    const result = await fetchWordsPage(statusFilter, 0, nextAdvancedFilters);
-    setItems(result.data);
-    setActiveTotal(result.total);
-    setIsLoadingMore(false);
+    await applyFilters(statusFilter, nextAdvancedFilters);
   }
 
   async function handleClearAdvancedFilters() {
     setAdvancedFilters({});
-    setIsLoadingMore(true);
-
-    const result = await fetchWordsPage(statusFilter, 0, {});
-    setItems(result.data);
-    setActiveTotal(result.total);
-    setIsLoadingMore(false);
+    await applyFilters(statusFilter, {});
   }
 
   async function handleStatusChange(
@@ -536,7 +656,7 @@ export function HomeContent({
                         <Select
                           clearable
                           label="CEFR level"
-                          data={toSelectOptions(filterOptions.cefrLevels)}
+                          data={toSelectOptions(activeFilterOptions.cefrLevels)}
                           value={advancedFilters.cefrLevel ?? null}
                           onChange={(value) =>
                             handleAdvancedFilterChange("cefrLevel", value)
@@ -547,7 +667,7 @@ export function HomeContent({
                         <Select
                           clearable
                           label="Priority"
-                          data={toSelectOptions(filterOptions.priorities)}
+                          data={toSelectOptions(activeFilterOptions.priorities)}
                           value={advancedFilters.priority ?? null}
                           onChange={(value) =>
                             handleAdvancedFilterChange("priority", value)
@@ -558,7 +678,7 @@ export function HomeContent({
                         <Select
                           clearable
                           label="Word type"
-                          data={toSelectOptions(filterOptions.wordTypes)}
+                          data={toSelectOptions(activeFilterOptions.wordTypes)}
                           value={advancedFilters.wordType ?? null}
                           onChange={(value) =>
                             handleAdvancedFilterChange("wordType", value)
@@ -570,7 +690,9 @@ export function HomeContent({
                         <Select
                           clearable
                           label="IELTS relevance"
-                          data={toSelectOptions(filterOptions.ieltsRelevances)}
+                          data={toSelectOptions(
+                            activeFilterOptions.ieltsRelevances,
+                          )}
                           value={advancedFilters.ieltsRelevance ?? null}
                           onChange={(value) =>
                             handleAdvancedFilterChange("ieltsRelevance", value)
@@ -581,7 +703,7 @@ export function HomeContent({
                         <Select
                           clearable
                           label="Theme"
-                          data={toSelectOptions(filterOptions.themes)}
+                          data={toSelectOptions(activeFilterOptions.themes)}
                           value={advancedFilters.theme ?? null}
                           onChange={(value) =>
                             handleAdvancedFilterChange("theme", value)
@@ -593,7 +715,9 @@ export function HomeContent({
                         <Select
                           clearable
                           label="Study group"
-                          data={toSelectOptions(filterOptions.studyGroups)}
+                          data={toSelectOptions(
+                            activeFilterOptions.studyGroups,
+                          )}
                           value={advancedFilters.studyGroup ?? null}
                           onChange={(value) =>
                             handleAdvancedFilterChange("studyGroup", value)
@@ -605,10 +729,9 @@ export function HomeContent({
                         <Select
                           clearable
                           label="Is phrase"
-                          data={[
-                            { value: "1", label: "Yes" },
-                            { value: "0", label: "No" },
-                          ]}
+                          data={toIsPhraseOptions(
+                            activeFilterOptions.isPhrases,
+                          )}
                           value={advancedFilters.isPhrase ?? null}
                           onChange={(value) =>
                             handleAdvancedFilterChange("isPhrase", value)
