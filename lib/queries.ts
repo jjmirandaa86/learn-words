@@ -61,6 +61,7 @@ const filterColumnMap = {
   ieltsRelevance: "ielts_relevance",
   theme: "theme",
   studyGroup: "study_group",
+  isPhrase: "is_phrase",
 } satisfies Record<keyof WordFilters, string>;
 
 function assertSafeIdentifier(identifier: string) {

@@ -602,6 +602,20 @@ export function HomeContent({
                           searchable
                           w={{ base: "100%", sm: 220 }}
                         />
+                        <Select
+                          clearable
+                          label="Is phrase"
+                          data={[
+                            { value: "1", label: "Yes" },
+                            { value: "0", label: "No" },
+                          ]}
+                          value={advancedFilters.isPhrase ?? null}
+                          onChange={(value) =>
+                            handleAdvancedFilterChange("isPhrase", value)
+                          }
+                          disabled={isLoadingMore}
+                          w={{ base: "100%", sm: 220 }}
+                        />
                       </Group>
 
                       <Button

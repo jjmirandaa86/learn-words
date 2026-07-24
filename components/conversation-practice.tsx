@@ -58,11 +58,21 @@ function buildConversationWordsUrl(limit: number, filters: WordFilters) {
 function getActiveFilterLabels(filters: WordFilters) {
   return Object.entries(filters)
     .filter(([, value]) => Boolean(value))
-    .map(([key, value]) => ({
-      key,
-      label: key === "learningStatus" ? "Status" : key,
-      value,
-    }));
+    .map(([key, value]) => {
+      if (key === "learningStatus") {
+        return { key, label: "Status", value };
+      }
+
+      if (key === "isPhrase") {
+        return {
+          key,
+          label: "Is phrase",
+          value: value === "1" ? "Yes" : value === "0" ? "No" : value,
+        };
+      }
+
+      return { key, label: key, value };
+    });
 }
 
 export function ConversationPractice({ filters }: ConversationPracticeProps) {

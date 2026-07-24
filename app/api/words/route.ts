@@ -20,6 +20,9 @@ export async function GET(request: Request) {
   const random = searchParams.get("random") === "true";
 
   const learningStatus = status && isLearningStatus(status) ? status : undefined;
+  const isPhraseParam = searchParams.get("isPhrase");
+  const isPhrase =
+    isPhraseParam === "0" || isPhraseParam === "1" ? isPhraseParam : undefined;
   const filters: WordFilters = {
     learningStatus,
     cefrLevel: searchParams.get("cefrLevel") || undefined,
@@ -28,6 +31,7 @@ export async function GET(request: Request) {
     ieltsRelevance: searchParams.get("ieltsRelevance") || undefined,
     theme: searchParams.get("theme") || undefined,
     studyGroup: searchParams.get("studyGroup") || undefined,
+    isPhrase,
   };
 
   if (status && !learningStatus) {

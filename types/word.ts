@@ -52,6 +52,7 @@ export type WordFilters = {
   ieltsRelevance?: string;
   theme?: string;
   studyGroup?: string;
+  isPhrase?: string;
 };
 
 export type WordFilterOptions = {
